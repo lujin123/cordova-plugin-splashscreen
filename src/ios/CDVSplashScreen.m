@@ -23,8 +23,8 @@
 #import "CDVViewController+SplashScreen.h"
 
 #define kSplashScreenDurationDefault 3000.0f
-#define kFadeDurationDefault 500.0f
 
+static NSString *const PLUGIN_NAME = @"cordova-splash-screen";
 
 @implementation CDVSplashScreen
 
@@ -77,7 +77,7 @@
     BOOL autorotateValue = (device.iPad || device.iPhone6Plus) ?
         [(CDVViewController *)self.viewController shouldAutorotateDefaultValue] :
         NO;
-
+    
     [(CDVViewController *)self.viewController setEnabledAutorotation:autorotateValue];
 
     NSString* topActivityIndicator = [self.commandDelegate.settings objectForKey:[@"TopActivityIndicator" lowercaseString]];
@@ -120,9 +120,86 @@
     [parentView addObserver:self forKeyPath:@"frame" options:0 context:nil];
     [parentView addObserver:self forKeyPath:@"bounds" options:0 context:nil];
 
+    
+    
+    NSString* imageName = [self getImageName:[self getCurrentOrientation] delegate:(id<CDVScreenOrientationDelegate>)self.viewController device:[self getCurrentDevice]];
+    
+    NSURL *rootURL = [self getApplicationSupportDirectory];
+    
+    NSURL *pluginURL = [rootURL URLByAppendingPathComponent:PLUGIN_NAME isDirectory: YES];
+    NSURL *splashURL = [pluginURL URLByAppendingPathComponent:imageName];
+    
+    NSFileManager *fileManager = [NSFileManager defaultManager];
+    if([fileManager fileExistsAtPath:splashURL.path]){
+        NSLog(@"splash image has exists...");
+        _curDynamicImage = splashURL.path;
+    }
+    
+    // check splash image update
+    NSString* _configPath = [self.commandDelegate.settings objectForKey:[@"SplashScreenIOSContentURL"lowercaseString]];
+    NSLog(@"SplashScreenIOSContentURL: %@", _configPath);
+    
+    
+    NSURL* _configURL = [NSURL URLWithString:_configPath];
+    [self downloadDataFromUrl:_configURL requestHeaders:nil completionBlock:^(NSData *data, NSError *error) {
+        
+        if(error){
+            NSLog(@"splash download ios splash config file faild...");
+            return;
+        }
+        
+        NSDictionary *json = [self getJsonData:data error: &error];
+        
+        if(![fileManager fileExistsAtPath:pluginURL.path]){
+            [fileManager createDirectoryAtPath:pluginURL.path
+                   withIntermediateDirectories:YES
+                                    attributes:nil
+                                         error:nil];
+        }
+        
+        // get config file
+        NSURL * configIosURL = [pluginURL URLByAppendingPathComponent:@"splash-ios.json"];
+        NSData *oldData = [self getDataFromFolder: configIosURL];
+         
+        NSDictionary *oldJson = [self getJsonData:oldData error:&error];
+        
+        // compare file diff
+        if([self compareFileDiff:json _oldJson:oldJson compareKey:imageName]){
+            NSString *imageURL = [json objectForKey:imageName];
+            
+            [self downloadDataFromUrl:[NSURL URLWithString:imageURL]
+                       requestHeaders:nil
+                      completionBlock:^(NSData *data, NSError *error) {
+                          if(error){
+                              NSLog(@"splash download ios splash image faild...");
+                              return;
+                          }
+                          BOOL flag = [self saveData:data
+                                     toURL:[pluginURL URLByAppendingPathComponent:imageName]];
+                          if(flag){
+                              NSLog(@"splash download image success");
+                          }else{
+                              NSLog(@"splash download image faild");
+                          }
+            }];
+            
+            // save config file
+            BOOL flag = [self saveData:data toURL:configIosURL];
+            if(flag){
+                NSLog(@"splash save json file success");
+            }else{
+                NSLog(@"splash save json file faild");
+            }
+        }else{
+            NSLog(@"splash nothing to download...");
+        }
+    }];
+    
     [self updateImage];
     _destroyed = NO;
+    
 }
+
 
 - (void)hideViews
 {
@@ -142,28 +219,20 @@
     _curImageName = nil;
 
     self.viewController.view.userInteractionEnabled = YES;  // re-enable user interaction upon completion
-    @try {
-        [self.viewController.view removeObserver:self forKeyPath:@"frame"];
-        [self.viewController.view removeObserver:self forKeyPath:@"bounds"];
-    }
-    @catch (NSException *exception) {
-        // When reloading the page from a remotely connected Safari, there
-        // are no observers, so the removeObserver method throws an exception,
-        // that we can safely ignore.
-        // Alternatively we can check whether there are observers before calling removeObserver
-    }
+    [self.viewController.view removeObserver:self forKeyPath:@"frame"];
+    [self.viewController.view removeObserver:self forKeyPath:@"bounds"];
 }
 
 - (CDV_iOSDevice) getCurrentDevice
 {
     CDV_iOSDevice device;
-
+    
     UIScreen* mainScreen = [UIScreen mainScreen];
     CGFloat mainScreenHeight = mainScreen.bounds.size.height;
     CGFloat mainScreenWidth = mainScreen.bounds.size.width;
-
+    
     int limit = MAX(mainScreenHeight,mainScreenWidth);
-
+    
     device.iPad = (UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomPad);
     device.iPhone = (UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomPhone);
     device.retina = ([mainScreen scale] == 2.0);
@@ -174,7 +243,7 @@
     // this is appropriate for detecting the runtime screen environment
     device.iPhone6 = (device.iPhone && limit == 667.0);
     device.iPhone6Plus = (device.iPhone && limit == 736.0);
-
+    
     return device;
 }
 
@@ -182,15 +251,15 @@
 {
     // Use UILaunchImageFile if specified in plist.  Otherwise, use Default.
     NSString* imageName = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"UILaunchImageFile"];
-
+    
     NSUInteger supportedOrientations = [orientationDelegate supportedInterfaceOrientations];
-
+    
     // Checks to see if the developer has locked the orientation to use only one of Portrait or Landscape
     BOOL supportsLandscape = (supportedOrientations & UIInterfaceOrientationMaskLandscape);
     BOOL supportsPortrait = (supportedOrientations & UIInterfaceOrientationMaskPortrait || supportedOrientations & UIInterfaceOrientationMaskPortraitUpsideDown);
     // this means there are no mixed orientations in there
     BOOL isOrientationLocked = !(supportsPortrait && supportsLandscape);
-
+    
     if (imageName)
     {
         imageName = [imageName stringByDeletingPathExtension];
@@ -259,7 +328,7 @@
                 case UIInterfaceOrientationLandscapeRight:
                     imageName = [imageName stringByAppendingString:@"-Landscape"];
                     break;
-
+                    
                 case UIInterfaceOrientationPortrait:
                 case UIInterfaceOrientationPortraitUpsideDown:
                 default:
@@ -268,7 +337,7 @@
             }
         }
     }
-
+    NSLog(@"IMAGE NAME: %@", imageName);
     return imageName;
 }
 
@@ -314,11 +383,18 @@
 {
     NSString* imageName = [self getImageName:[self getCurrentOrientation] delegate:(id<CDVScreenOrientationDelegate>)self.viewController device:[self getCurrentDevice]];
 
-    if (![imageName isEqualToString:_curImageName])
+    if (![imageName isEqualToString:_curImageName] && ![_curImageName isEqualToString:_curDynamicImage])
     {
-        UIImage* img = [UIImage imageNamed:imageName];
+        UIImage* img;
+        if(_curDynamicImage){
+            img = [UIImage imageWithContentsOfFile:_curDynamicImage];
+            _curImageName = _curDynamicImage;
+        }else{
+            img = [UIImage imageNamed:imageName];
+            _curImageName = imageName;
+        }
         _imageView.image = img;
-        _curImageName = imageName;
+        
     }
 
     // Check that splash screen's image exists before updating bounds
@@ -385,6 +461,85 @@
     _imageView.frame = imgBounds;
 }
 
+
+- (void) downloadDataFromUrl:(NSURL*) url requestHeaders:(NSDictionary *)headers completionBlock:(DataDownloadCompletionBlock) block {
+    NSURLSessionConfiguration *configuration = [NSURLSessionConfiguration defaultSessionConfiguration];
+    configuration.requestCachePolicy = NSURLRequestReloadIgnoringLocalCacheData;
+    if (headers) {
+        [configuration setHTTPAdditionalHeaders:headers];
+    }
+    NSURLSession *session = [NSURLSession sessionWithConfiguration:configuration];
+    
+    NSURLSessionDataTask* dowloadTask = [session dataTaskWithURL:url completionHandler:^(NSData * _Nullable data, NSURLResponse * _Nullable response, NSError * _Nullable error) {
+        block(data, error);
+    }];
+    
+    [dowloadTask resume];
+}
+
+-(NSDictionary *)getJsonData:(NSData *)data error:(NSError **)error
+{
+    if(*error || data == nil){
+        return nil;
+    }
+    NSDictionary* json = [NSJSONSerialization JSONObjectWithData:data options:kNilOptions error:error];
+    if(*error){
+        return nil;
+    }
+    return json;
+}
+
+-(NSData *) getDataFromFolder:(NSURL *)folderURL
+{
+    if(![[NSFileManager defaultManager] fileExistsAtPath:folderURL.path]){
+        return nil;
+    }
+    
+    NSData *data = [NSData dataWithContentsOfURL:folderURL];
+    return data;
+}
+
+-(BOOL) saveData:(NSData *)data toURL:(NSURL *)fileURL
+{
+    if(data){
+        NSFileManager *fileManager = [NSFileManager defaultManager];
+        return [fileManager createFileAtPath:fileURL.path
+                                    contents:data
+                                  attributes:nil];
+    }else{
+        return NO;
+    }
+//    return [data writeToFile:fileURL.path options:kNilOptions error:nil];
+    
+}
+
+- (NSURL *)getApplicationSupportDirectory {
+    NSError *error = nil;
+    NSURL *appSupportDir = [[NSFileManager defaultManager]
+                            URLForDirectory:NSApplicationSupportDirectory
+                                        inDomain:NSUserDomainMask
+                               appropriateForURL:nil
+                                          create:YES
+                                           error:&error];
+    if (error) {
+        return nil;
+    }
+    
+    NSString *appBundleID = [[NSBundle mainBundle] bundleIdentifier];
+    
+    return [appSupportDir URLByAppendingPathComponent:appBundleID isDirectory:YES];
+}
+
+-(BOOL)compareFileDiff:(NSDictionary *)newJson _oldJson:(NSDictionary *)oldJson compareKey:(NSString *)imageName
+{
+    NSString * newURL = [newJson objectForKey:imageName];
+    NSString * oldURL = [oldJson objectForKey:imageName];
+    if(![newURL isEqualToString:oldURL]){
+        return YES;
+    }
+    return NO;
+}
+
 - (void)setVisible:(BOOL)visible
 {
     [self setVisible:visible andForce:NO];
@@ -399,7 +554,7 @@
         id fadeSplashScreenValue = [self.commandDelegate.settings objectForKey:[@"FadeSplashScreen" lowercaseString]];
         id fadeSplashScreenDuration = [self.commandDelegate.settings objectForKey:[@"FadeSplashScreenDuration" lowercaseString]];
 
-        float fadeDuration = fadeSplashScreenDuration == nil ? kFadeDurationDefault : [fadeSplashScreenDuration floatValue];
+        float fadeDuration = fadeSplashScreenDuration == nil ? kSplashScreenDurationDefault : [fadeSplashScreenDuration floatValue];
 
         id splashDurationString = [self.commandDelegate.settings objectForKey: [@"SplashScreenDelay" lowercaseString]];
         float splashDuration = splashDurationString == nil ? kSplashScreenDurationDefault : [splashDurationString floatValue];
@@ -465,7 +620,7 @@
                                         [weakSelf hideViews];
                                     }
                                     completion:^(BOOL finished) {
-                                        // Always destroy views, otherwise you could have an
+                                        // Always destroy views, otherwise you could have an 
                                         // invisible splashscreen that is overlayed over your active views
                                         // which causes that no touch events are passed
                                         if (!_destroyed) {

@@ -35,6 +35,7 @@ typedef struct {
     UIActivityIndicatorView* _activityView;
     UIImageView* _imageView;
     NSString* _curImageName;
+    NSString* _curDynamicImage;
     BOOL _visible;
     BOOL _destroyed;
 }

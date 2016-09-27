@@ -115,6 +115,9 @@ public class SplashScreen extends CordovaPlugin {
 
 
     private Bitmap downloadSplashImage(String url) {
+        if (url == null) {
+            return null;
+        }
         Bitmap bitmap = null;
         try {
             InputStream is = new URL(url).openStream();
@@ -187,13 +190,31 @@ public class SplashScreen extends CordovaPlugin {
      */
     private boolean diffSplashFile(JsonNode newFile, JsonNode oldFile) {
         boolean flag = false;
-        String newImgUrl = newFile.get(densityName).asText();
-        String oldImgUrl = oldFile.get(densityName).asText();
+        String newImgUrl = getDensityUrl(newFile, densityName);
+        String oldImgUrl = getDensityUrl(oldFile, densityName);
         if (oldImgUrl != null && !oldImgUrl.equals(newImgUrl)) {
             flag = true;
         }
 
         return flag;
+    }
+
+    /**
+     * 解析json文件
+     * @param json json内容
+     * @param densityName 待取字段
+     * @return string 字段中的内容
+     */
+    public static String getDensityUrl(JsonNode json, String densityName) {
+        try {
+            JsonNode contents = json.get("contents");
+            JsonNode content = contents.get(0);
+            JsonNode params = content.get("params");
+            return params.get(densityName).asText();
+        } catch (Exception e) {
+            e.printStackTrace();
+            return null;
+        }
     }
 
     /**
@@ -206,10 +227,10 @@ public class SplashScreen extends CordovaPlugin {
 
             @Override
             public void run() {
-//                String jsonContent;
                 try {
                     if (densityName == null) {
                         densityName = getDensityName(context);
+                        Log.d(LOG_TAG, "run: densityName=" + densityName);
                     }
                     if (jsonDownloader == null) {
                         jsonDownloader = new JsonDownloader(jsonUrl, null);
@@ -223,7 +244,7 @@ public class SplashScreen extends CordovaPlugin {
                         String oldJson = getSplashFile();
                         JsonNode oldJsonNode = new ObjectMapper().readTree(oldJson);
                         flag = diffSplashFile(json, oldJsonNode);
-                    }catch (IOException e){
+                    } catch (IOException e) {
                         e.printStackTrace();
                     }
 
@@ -231,9 +252,7 @@ public class SplashScreen extends CordovaPlugin {
 
                     if (flag) {
                         saveSplashFile(jsonContent);
-
-                        String imgUrl = json.get(densityName).asText();
-
+                        String imgUrl = SplashScreen.getDensityUrl(json, densityName);
                         Bitmap bitmap = downloadSplashImage(imgUrl);
                         if (bitmap != null) {
                             saveSplashImage(bitmap);
@@ -258,7 +277,7 @@ public class SplashScreen extends CordovaPlugin {
         int drawableId = preferences.getInteger("SplashDrawableId", 0);
         if (drawableId == 0) {
             context = cordova.getActivity();
-            String jsonUrl = preferences.getString("SplashScreenAndroidContentUrl", null);
+            String jsonUrl = preferences.getString("SplashScreenContentUrl", null);
             String splashResource = preferences.getString("SplashScreen", "screen");
 
             if (jsonUrl != null && splashResource != null) {
@@ -412,6 +431,7 @@ public class SplashScreen extends CordovaPlugin {
 
             // Splash drawable may change with orientation, so reload it.
             if (splashImageView != null) {
+                // TODO: 2016/8/28 custom
                 if (screenDrawable != null) {
                     splashImageView.setImageDrawable(screenDrawable);
                 } else {

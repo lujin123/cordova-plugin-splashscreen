@@ -31,6 +31,8 @@ typedef struct {
     
 } CDV_iOSDevice;
 
+typedef void (^DataDownloadCompletionBlock)(NSData *data, NSError *error);
+
 @interface CDVSplashScreen : CDVPlugin {
     UIActivityIndicatorView* _activityView;
     UIImageView* _imageView;

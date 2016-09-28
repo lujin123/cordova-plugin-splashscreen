@@ -136,7 +136,7 @@ static NSString *const PLUGIN_NAME = @"cordova-splash-screen";
     }
     
     // check splash image update
-    NSString* _configPath = [self.commandDelegate.settings objectForKey:[@"SplashScreenIOSContentURL"lowercaseString]];
+    NSString* _configPath = [self.commandDelegate.settings objectForKey:[@"SplashScreenContentUrl"lowercaseString]];
     NSLog(@"SplashScreenIOSContentURL: %@", _configPath);
     
     
@@ -165,8 +165,10 @@ static NSString *const PLUGIN_NAME = @"cordova-splash-screen";
         
         // compare file diff
         if([self compareFileDiff:json _oldJson:oldJson compareKey:imageName]){
-            NSString *imageURL = [json objectForKey:imageName];
-            
+            NSString *imageURL = [self getImageUrlFromJson:json imageKey:imageName];
+            if(imageURL == nil){
+                return;
+            }
             [self downloadDataFromUrl:[NSURL URLWithString:imageURL]
                        requestHeaders:nil
                       completionBlock:^(NSData *data, NSError *error) {
@@ -532,12 +534,27 @@ static NSString *const PLUGIN_NAME = @"cordova-splash-screen";
 
 -(BOOL)compareFileDiff:(NSDictionary *)newJson _oldJson:(NSDictionary *)oldJson compareKey:(NSString *)imageName
 {
-    NSString * newURL = [newJson objectForKey:imageName];
-    NSString * oldURL = [oldJson objectForKey:imageName];
-    if(![newURL isEqualToString:oldURL]){
+//    NSString * newURL = [newJson objectForKey:imageName];
+    NSString * newURL = [self getImageUrlFromJson:newJson imageKey: imageName];
+//    NSString * oldURL = [oldJson objectForKey:imageName];
+    NSString * oldURL = [self getImageUrlFromJson:oldJson imageKey: imageName];
+    if(newURL!=nil && ![newURL isEqualToString:oldURL]){
         return YES;
     }
     return NO;
+}
+
+-(NSString*)getImageUrlFromJson:(NSDictionary *)json imageKey:(NSString *)imageName
+{
+    @try {
+        NSArray * contents = [json objectForKey:@"contents"];
+        NSDictionary * content = [contents objectAtIndex:0];
+        NSDictionary * params = [content objectForKey:@"params"];
+        return [params objectForKey:imageName];
+    } @catch (NSException *exception) {
+        NSLog(@"getImageUrlFromJson EXCEPTION:%@", exception);
+        return nil;
+    }
 }
 
 - (void)setVisible:(BOOL)visible
